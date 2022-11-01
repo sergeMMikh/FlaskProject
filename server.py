@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 app = Flask('app')
 bcrypt = Bcrypt(app)
 
+
 class HttpError(Exception):
     def __init__(self, stats_code: int, message: str | dict | list):
         self.stats_code = stats_code
@@ -40,7 +41,6 @@ password_regex = re.compile(
 
 
 class UserModel(Base):
-
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True)
@@ -51,13 +51,14 @@ class UserModel(Base):
 
 Base.metadata.create_all(engine)
 
+
 class CreateUserSchema(pydantic.BaseModel):
     name: str
     password: str
 
     @pydantic.validator("password")
     def check_name(cls, value: str):
-        if len(value) > 32 :
+        if len(value) > 32:
             raise ValueError("name mast be less 32 chars")
 
         return value
@@ -80,7 +81,7 @@ class PatchUserSchema(pydantic.BaseModel):
 
     @pydantic.validator("password")
     def check_name(cls, value: str):
-        if len(value) > 32 :
+        if len(value) > 32:
             raise ValueError("name mast be less 32 chars")
 
         return value
@@ -97,23 +98,32 @@ class PatchUserSchema(pydantic.BaseModel):
         return value
 
 
-def validate(data_to_validate: dict, validation_class: Type[CreateUserSchema]):
+def validate(data_to_validate: dict, validation_class: Type[CreateUserSchema] | Type[PatchUserSchema]):
     try:
-        return validation_class(**data_to_validate).dict()
+        return validation_class(**data_to_validate).dict(exclude_none=True)
     except pydantic.ValidationError as err:
         raise HttpError(400, err.errors())
+
+
+def get_by_id(item_id: int, orm_model: Type[UserModel], session: Session):
+    orm_item = session.query(orm_model).get(item_id)
+
+    if orm_item is None:
+        raise HttpError(404, 'item not found')
+
+    return orm_item
 
 
 class UserView(MethodView):
 
     def get(self, user_id: int):
         with Session() as session:
-            user = session.query(UserModel).get(user_id)
+            user = get_by_id(user_id, UserModel, session)
 
             if user is None:
                 raise HttpError(404, 'user not found')
 
-            return jsonify( {
+            return jsonify({
                 'user': user.name,
                 'creation time': user.creation_time.isoformat()
             })
@@ -129,14 +139,26 @@ class UserView(MethodView):
                 raise HttpError(409, 'User name already exists')
             return jsonify({'status': 'ok', 'id': new_user.id})
 
-    def patch(self):
-        return jsonify({'status': 'ok', 'id': 'patch'})
+    def patch(self, user_id: int):
+        data_to_patch = validate(request.json, PatchUserSchema)
 
-    def delete(self):
-        return jsonify({'status': 'ok', 'id': 'delete'})
+        with Session() as session:
+            user = get_by_id(user_id, UserModel, session)
+
+            for field, value in data_to_patch.items():
+                setattr(user, field, value)
+            session.commit()
+            return jsonify({'status': 'success', 'id': user.id})
+
+    def delete(self, user_id: int):
+        with Session() as session:
+            user = get_by_id(user_id, UserModel, session)
+            session.delete(user)
+            session.commit()
+            return jsonify({'status': 'success', 'id': user.id})
 
 
-app.add_url_rule('/user/<int:user_id>', view_func=UserView.as_view('users_get'), methods=['GET'])
-app.add_url_rule('/user/', view_func=UserView.as_view('users'), methods=['POST', 'PATCH', 'DELETE'])
+app.add_url_rule('/user/<int:user_id>', view_func=UserView.as_view('users_get'), methods=['GET', 'PATCH', 'DELETE'])
+app.add_url_rule('/user/', view_func=UserView.as_view('users'), methods=['POST'])
 
 app.run()

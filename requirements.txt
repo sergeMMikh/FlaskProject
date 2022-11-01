@@ -3,3 +3,4 @@ pydantic
 SQLAlchemy
 psycopg2-binary
 requests
+flask_bcrypt

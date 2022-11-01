@@ -1,7 +1,7 @@
 import pydantic
 import re
 from typing import Type
-
+from flask_bcrypt import Bcrypt
 from flask import Flask, jsonify, request
 from flask.views import MethodView
 from sqlalchemy import Column, Integer, String, DateTime, create_engine, func
@@ -10,7 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.exc import IntegrityError
 
 app = Flask('app')
-
+bcrypt = Bcrypt(app)
 
 class HttpError(Exception):
     def __init__(self, stats_code: int, message: str | dict | list):
@@ -66,6 +66,10 @@ class CreateUserSchema(pydantic.BaseModel):
     def check_password(cls, value: str):
         if not re.search(password_regex, value):
             raise ValueError("password to easy")
+
+        value.encode()
+        value = bcrypt.generate_password_hash(value)
+        value = value.decode()
 
         return value
 

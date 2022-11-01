@@ -1,6 +1,6 @@
 import pydantic
 import re
-from typing import Type
+from typing import Type, Optional
 from flask_bcrypt import Bcrypt
 from flask import Flask, jsonify, request
 from flask.views import MethodView
@@ -74,6 +74,29 @@ class CreateUserSchema(pydantic.BaseModel):
         return value
 
 
+class PatchUserSchema(pydantic.BaseModel):
+    name: Optional[str]
+    password: Optional[str]
+
+    @pydantic.validator("password")
+    def check_name(cls, value: str):
+        if len(value) > 32 :
+            raise ValueError("name mast be less 32 chars")
+
+        return value
+
+    @pydantic.validator("password")
+    def check_password(cls, value: str):
+        if not re.search(password_regex, value):
+            raise ValueError("password to easy")
+
+        value.encode()
+        value = bcrypt.generate_password_hash(value)
+        value = value.decode()
+
+        return value
+
+
 def validate(data_to_validate: dict, validation_class: Type[CreateUserSchema]):
     try:
         return validation_class(**data_to_validate).dict()
@@ -83,8 +106,17 @@ def validate(data_to_validate: dict, validation_class: Type[CreateUserSchema]):
 
 class UserView(MethodView):
 
-    def get(self):
-        return jsonify({'status': 'ok', 'id': 'get'})
+    def get(self, user_id: int):
+        with Session() as session:
+            user = session.query(UserModel).get(user_id)
+
+            if user is None:
+                raise HttpError(404, 'user not found')
+
+            return jsonify( {
+                'user': user.name,
+                'creation time': user.creation_time.isoformat()
+            })
 
     def post(self):
         json_data = request.json
@@ -104,6 +136,7 @@ class UserView(MethodView):
         return jsonify({'status': 'ok', 'id': 'delete'})
 
 
-app.add_url_rule('/user/', view_func=UserView.as_view('users'), methods=['GET', 'POST', 'PATCH', 'DELETE'])
+app.add_url_rule('/user/<int:user_id>', view_func=UserView.as_view('users_get'), methods=['GET'])
+app.add_url_rule('/user/', view_func=UserView.as_view('users'), methods=['POST', 'PATCH', 'DELETE'])
 
 app.run()
